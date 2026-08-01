@@ -1,12 +1,11 @@
 // Noema 中文补丁 - 渲染进程翻译器。
-// 本文件不直接运行；由 zh-main.mjs 读取源码后通过 webContents.executeJavaScript 注入：
-//   executeJavaScript(`(${source})(${JSON.stringify(dict)})`)
+// 本文件不直接运行；两种投递方式：
+//   ① zh-main.mjs 经 protocol.handle 把本文件内联进 HTML <head>（主路径，解析时同步执行）
+//   ② zh-main.mjs 在 dom-ready 时 executeJavaScript 注入（兜底路径）
 // 因此本文件必须是一个「接收 dict 参数的函数表达式」，不能有任何顶层副作用语句。
 (function zhRenderer(dict) {
-  // 幂等标志要跨「隔离世界」可见（preload 与 executeJavaScript 属于不同 JS world，
-  // window 标志互不可见），因此以 DOM 属性为共享标志，window 标志作同世界快速路径。
-  // 判定与标记都在 start() 内完成：preload 在文档早期运行时 documentElement 可能尚未存在，
-  // 此时无法在 DOM 上留标记，只能等到 DOMContentLoaded。
+  // 幂等标志要跨「隔离世界」可见（内联脚本在主世界，executeJavaScript 兜底也在主世界，
+  // 但历史上曾有 preload 隔离世界路径），统一以 DOM 属性为共享标志，window 标志作快速路径。
   function alreadyPatched() {
     if (window.__zhPatched) return true;
     var de = document.documentElement;
@@ -19,6 +18,7 @@
     } catch (err) { /* ignore */ }
   }
   if (alreadyPatched()) return "already-patched";
+  markPatched();
 
   var exact = (dict && dict.exact) || {};
   var regexRules = [];
@@ -102,26 +102,25 @@
     }
   }
 
+  // 显式栈遍历（元素+文本），在元素层面对 .cm-content 整棵子树 continue——真剪枝。
+  // （TreeWalker(SHOW_TEXT) 无法在进入子树前剪枝，大文档下会把闪烁变成卡顿。）
   function walk(root) {
     if (!root) return;
     try {
-      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-        acceptNode: function (node) {
-          if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-          var p = node.parentElement;
-          if (!p) return NodeFilter.FILTER_REJECT;
-          var tag = p.tagName;
-          if (tag === "SCRIPT" || tag === "STYLE" || tag === "TEXTAREA") return NodeFilter.FILTER_REJECT;
-          return isSkipped(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-        },
-      });
-      var nodes = [];
-      while (walker.nextNode()) nodes.push(walker.currentNode);
-      for (var i = 0; i < nodes.length; i++) translateTextNode(nodes[i]);
-
-      var els = root.querySelectorAll ? root.querySelectorAll("[title],[placeholder],[aria-label]") : [];
-      for (var j = 0; j < els.length; j++) translateElement(els[j]);
-      if (root.getAttribute) translateElement(root);
+      var stack = [root];
+      while (stack.length) {
+        var node = stack.pop();
+        var type = node.nodeType;
+        if (type === 1) {
+          var tag = node.tagName;
+          if (tag === "SCRIPT" || tag === "STYLE" || tag === "TEXTAREA") continue;
+          if (node.matches && node.matches(SKIP_SELECTOR)) continue; // 真剪枝：整棵子树不进入
+          translateElement(node);
+          for (var child = node.lastChild; child; child = child.previousSibling) stack.push(child);
+        } else if (type === 3) {
+          translateTextNode(node);
+        }
+      }
     } catch (err) { /* ignore */ }
   }
 
@@ -133,11 +132,32 @@
     } catch (err) { /* ignore */ }
   }
 
-  // MutationObserver 回调是微任务，在渲染绘制之前执行——回调内同步翻译可保证下一帧就是中文。
-  // （此前用 50ms debounce 批量处理，延迟越过首帧，导致每页先闪一帧英文。）
+  // cloak 解除：首轮 UI 变更被同步翻译后，在下一个渲染机会移除 pending 属性。
+  // 真正的 fail-open 兜底是 cloak 自身的 CSS 动画超时（JS 全部失效也会自动回英文）。
+  var uncloaked = false;
+  function uncloak() {
+    if (uncloaked) return;
+    uncloaked = true;
+    try {
+      requestAnimationFrame(function () {
+        try {
+          document.documentElement.removeAttribute("data-noema-zh-pending");
+        } catch (err) { /* ignore */ }
+      });
+    } catch (err) {
+      try {
+        document.documentElement.removeAttribute("data-noema-zh-pending");
+      } catch (err2) { /* ignore */ }
+    }
+  }
+  window.addEventListener("load", uncloak, { once: true });
+  setTimeout(uncloak, 2000); // JS 兜底（正常路径远早于此）
+
+  // 对 Observer 安装后、观察范围内发生的普通 DOM 变更，MutationObserver 微任务通常在
+  // 下一次渲染更新前执行；回调内同步翻译可避免这些变更以英文状态进入下一帧。
+  // （此前用 50ms debounce，延迟越过首帧导致每页先闪一帧英文；现改为回调内同步处理。）
   var observer = new MutationObserver(function (mutations) {
-    var roots = [];
-    var seen = new Set();
+    var sawUiChange = false;
     for (var i = 0; i < mutations.length; i++) {
       var mu = mutations[i];
       try {
@@ -145,34 +165,42 @@
           translateTextNode(mu.target);
         } else if (mu.type === "attributes") {
           translateElement(mu.target);
-        } else if (mu.target && mu.target.nodeType === 1 && !isSkipped(mu.target) && !seen.has(mu.target)) {
-          seen.add(mu.target); // childList 变化按父节点去重，walk 一次覆盖全部 addedNodes
-          roots.push(mu.target);
+        } else {
+          // childList 只处理 addedNodes（不反复全扫 mutation.target），.cm-content 在 walk 根处剪枝
+          for (var j = 0; j < mu.addedNodes.length; j++) {
+            var n = mu.addedNodes[j];
+            if (n.nodeType === 1) {
+              sawUiChange = true;
+              walk(n);
+            } else if (n.nodeType === 3) {
+              translateTextNode(n);
+            }
+          }
         }
       } catch (err) { /* ignore */ }
     }
-    for (var k = 0; k < roots.length; k++) walk(roots[k]);
     translateTitle();
+    if (sawUiChange) uncloak();
   });
 
-  var started = false;
-  function start() {
-    if (started || alreadyPatched()) return; // 另一个世界可能已完成翻译并挂上观察器
-    started = true;
-    markPatched();
-    walk(document.body);
-    translateTitle();
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ATTRS,
-    });
+  // 立即安装 Observer（本脚本经 <head> bootstrap 注入，执行时应用脚本尚未运行，
+  // 不需要也不能等 DOMContentLoaded）；对已存在的部分做首轮遍历。
+  function boot() {
+    try {
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ATTRS,
+      });
+      walk(document.documentElement);
+      translateTitle();
+    } catch (err) { /* ignore */ }
   }
 
-  if (document.body) start();
-  else document.addEventListener("DOMContentLoaded", start, { once: true });
+  if (document.documentElement) boot();
+  else document.addEventListener("DOMContentLoaded", boot, { once: true });
 
   return "patched";
 })

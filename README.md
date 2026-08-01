@@ -135,7 +135,7 @@ NOEMA_ZH_DEBUG=1 Noema/node_modules/electron/dist/electron.exe noema-zh-patch/zh
 ### 三条翻译通道
 
 1. **菜单通道（主进程）**：monkey-patch `Menu.buildFromTemplate`，递归翻译菜单模板中的 `label`。纯 `{ role }` 项（剪切/复制等）在模板阶段写入显式中文 label，role 语义不变。一个钩子同时覆盖应用菜单、右键菜单和未来任何动态菜单；`dialog.showOpenDialog` 的标题与文件筛选同样包装。
-2. **页面通道（渲染进程）**：用 `session.protocol.handle` 拦截本地 host 的 HTML 响应，把翻译器作为内联 `<script>` 注入页面——脚本在 HTML 解析时同步执行，早于首次绘制，**界面直接以中文出现，无英文闪烁**，且不受窗口 `sandbox: true` 限制（session 级 preload 在 sandbox 窗口下不可用，已实测排除该方案）。翻译器用 TreeWalker 全量替换文本节点与 `title`/`placeholder`/`aria-label` 属性，再以 MutationObserver（50ms 去抖）处理动态新增的内容；`dom-ready` 的 `executeJavaScript` 注入作为兜底路径保留，幂等标志（`data-zh-patched` DOM 属性）保证两条路径不重复执行。
+2. **页面通道（渲染进程）**：用 `session.protocol.handle` 拦截本地 host 的 HTML 文档响应，在 `<head>` 最前部注入 bootstrap——顺序为 cloak 样式（`opacity` 隐藏 body，纯 CSS 动画 1.5s 自动放行，JS 全失效也会回英文可见）→ pending 标志 → 翻译器脚本。翻译器在 HTML 解析时同步执行并**立即安装 MutationObserver**（不等 DOMContentLoaded）；Observer 微任务在渲染绘制前运行，回调内**同步翻译**（childList 只处理 addedNodes），首屏 UI 因此以中文直接出现。显式栈遍历在元素层面**真剪枝 `.cm-content`**（不进入整棵子树，大文档编辑不卡）。`dom-ready` 的 `executeJavaScript` 注入作为兜底路径保留，幂等标志（`data-zh-patched` DOM 属性）保证两条路径不重复执行。注意：对 Observer 安装前已存在的 DOM、iframe/Shadow DOM/canvas 内部文本，本机制不覆盖（已知边界）。
 3. **插值通道**：词典 `regex` 节的正则条目，处理 `Running ${n} cells` 这类运行时拼接的文案。
 
 ### 安全设计
@@ -143,6 +143,7 @@ NOEMA_ZH_DEBUG=1 Noema/node_modules/electron/dist/electron.exe noema-zh-patch/zh
 - **文档区隔离**：TreeWalker 与 MutationObserver 都显式跳过 `.cm-content` 子树，笔记内容不可能被翻译（有自动化验证）。
 - **英文兜底**：查不到词典的字符串原样显示；所有 patch 点包 try/catch，异常时退回原文。
 - **一键旁路**：`NOEMA_ZH=0` 时包装器什么都不做，直接加载原始入口。
+- **CSP 前瞻**：页面翻译依赖内联 `<script>`。若上游未来收紧 CSP（禁止 `unsafe-inline`），该通道会失效但 cloak 仍会自动放行回英文；届时迁移到 session preload 或 CDP 注入（已做过机制评估与最小复现）。
 - **自检**：每次启动在 `runtime.log` 记录菜单钩子拦截计数与翻译命中率；上游若重构菜单构建导致钩子失效，日志会明确报警而不是静默失败。
 
 ### 为什么不用源码 locale 层

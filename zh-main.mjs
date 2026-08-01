@@ -229,40 +229,67 @@ if (DISABLED) {
       // HTML 内联脚本形态：转义 </script 防止提前闭合；JSON 中的 <\/ 在 JS 字符串里等价于 </
       const inlineDict = JSON.stringify({ exact, regex: dict.regex || [] }).replace(/<\//g, "<\\/");
       const inlineRenderer = rendererSource.replace(/<\/script/gi, "<\\/script");
-      const inlineScript = `<script>(${inlineRenderer})(${inlineDict});</script>`;
+      // <head> bootstrap：cloak（纯 CSS 动画 fail-open，JS 全失效也会 ~1.5s 后自动回英文可见）
+      // → pending 标志 → 翻译器。必须在任何应用脚本之前，翻译器执行即安装 MutationObserver。
+      const bootstrap =
+        `<style id="noema-zh-cloak">html[data-noema-zh-pending] body{animation:noemaZhFailOpen 1500ms steps(1,end) both;}` +
+        `@keyframes noemaZhFailOpen{from{opacity:0;}to{opacity:1;}}</style>` +
+        `<script>document.documentElement.setAttribute("data-noema-zh-pending","1");</script>` +
+        `<script>(${inlineRenderer})(${inlineDict});</script>`;
 
-      // 首选投递方式：protocol.handle 拦截本地 host 的 HTML 响应，把翻译器内联进页面。
-      // 脚本在 HTML 解析时同步执行，早于首次绘制（无英文闪烁），且不受窗口 sandbox 限制
-      // （session 级 preload 在 sandbox:true 的窗口里不可用，已实测验证）。
+      function injectBootstrap(html) {
+        const headMatch = /<head[^>]*>/i.exec(html);
+        if (headMatch) {
+          const at = headMatch.index + headMatch[0].length;
+          return html.slice(0, at) + bootstrap + html.slice(at);
+        }
+        if (html.includes("</body>")) return html.replace("</body>", bootstrap + "</body>");
+        return html + bootstrap;
+      }
+
+      // 首选投递方式：protocol.handle 拦截本地 host 的 HTML 文档响应，把 bootstrap 内联进 <head>。
+      // 脚本在 HTML 解析时同步执行、早于首次绘制（无英文闪烁），且不受窗口 sandbox 限制
+      // （session 级 preload 在 Noema 的 sandbox:true 窗口中实测失败，机制未隔离，长期再评估）。
       const injectedSessions = new WeakSet();
       const ensureHtmlInjection = (ses) => {
         try {
           if (!ses || injectedSessions.has(ses)) return;
           ses.protocol.handle("http", async (request) => {
             protocolRequestCount++;
+            // bypassCustomProtocolHandlers 是必须的：net.fetch 默认也走协议处理器，会无限递归
+            const passthrough = () => net.fetch(request, { bypassCustomProtocolHandlers: true });
             try {
+              // 先判断再 fetch：只有「本地 host + GET + 导航文档」才可能改写，其余直接透传
               const url = new URL(request.url);
               const isLocal = url.hostname === "127.0.0.1" || url.hostname === "localhost";
-              // bypassCustomProtocolHandlers 是必须的：net.fetch 默认也走协议处理器，会无限递归
-              const response = await net.fetch(request, { bypassCustomProtocolHandlers: true });
-              if (!isLocal || request.method !== "GET") return response;
+              if (!isLocal || request.method !== "GET") return passthrough();
+              const dest = request.destination || "";
+              if (dest && dest !== "document") return passthrough();
+
+              const response = await passthrough();
               const type = response.headers.get("content-type") || "";
               if (!type.includes("text/html")) return response;
-              const html = await response.text();
-              htmlInjectCount++;
-              const injected = html.includes("</body>")
-                ? html.replace("</body>", inlineScript + "</body>")
-                : html + inlineScript;
-              const headers = new Headers(response.headers);
-              headers.delete("content-length");
-              return new Response(injected, {
-                status: response.status,
-                statusText: response.statusText,
-                headers,
-              });
+              // 已拿到 response：改写失败的放行必须是这个原响应，不能二次 fetch
+              try {
+                const html = await response.text();
+                htmlInjectCount++;
+                const headers = new Headers(response.headers);
+                for (const h of ["content-length", "content-encoding", "etag", "content-md5", "digest", "last-modified"]) {
+                  headers.delete(h);
+                }
+                headers.set("cache-control", "no-store");
+                return new Response(injectBootstrap(html), {
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers,
+                });
+              } catch (err) {
+                log(`HTML 改写失败，放行原响应: ${err && err.message ? err.message : err}`);
+                return response;
+              }
             } catch (err) {
-              log(`HTML 注入异常，按原样放行: ${err && err.message ? err.message : err}`);
-              return net.fetch(request, { bypassCustomProtocolHandlers: true });
+              log(`protocol handler 异常，透传: ${err && err.message ? err.message : err}`);
+              return passthrough();
             }
           });
           injectedSessions.add(ses);
