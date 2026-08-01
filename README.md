@@ -135,7 +135,7 @@ NOEMA_ZH_DEBUG=1 Noema/node_modules/electron/dist/electron.exe noema-zh-patch/zh
 ### 三条翻译通道
 
 1. **菜单通道（主进程）**：monkey-patch `Menu.buildFromTemplate`，递归翻译菜单模板中的 `label`。纯 `{ role }` 项（剪切/复制等）在模板阶段写入显式中文 label，role 语义不变。一个钩子同时覆盖应用菜单、右键菜单和未来任何动态菜单；`dialog.showOpenDialog` 的标题与文件筛选同样包装。
-2. **页面通道（渲染进程）**：启动时把翻译器打包为 session 级 preload（`session.registerPreloadScript`），在页面脚本之前、首次绘制之前注入每个窗口，翻译在 `DOMContentLoaded` 同步完成——**界面直接以中文出现，无英文闪烁**。翻译器用 TreeWalker 全量替换文本节点与 `title`/`placeholder`/`aria-label` 属性，再以 MutationObserver（50ms 去抖）处理动态新增的内容；`dom-ready` 的 `executeJavaScript` 注入作为兜底路径保留，幂等标志（`data-zh-patched` DOM 属性）保证两条路径不重复执行。
+2. **页面通道（渲染进程）**：用 `session.protocol.handle` 拦截本地 host 的 HTML 响应，把翻译器作为内联 `<script>` 注入页面——脚本在 HTML 解析时同步执行，早于首次绘制，**界面直接以中文出现，无英文闪烁**，且不受窗口 `sandbox: true` 限制（session 级 preload 在 sandbox 窗口下不可用，已实测排除该方案）。翻译器用 TreeWalker 全量替换文本节点与 `title`/`placeholder`/`aria-label` 属性，再以 MutationObserver（50ms 去抖）处理动态新增的内容；`dom-ready` 的 `executeJavaScript` 注入作为兜底路径保留，幂等标志（`data-zh-patched` DOM 属性）保证两条路径不重复执行。
 3. **插值通道**：词典 `regex` 节的正则条目，处理 `Running ${n} cells` 这类运行时拼接的文案。
 
 ### 安全设计
@@ -159,7 +159,7 @@ NOEMA_ZH_DEBUG=1 Noema/node_modules/electron/dist/electron.exe noema-zh-patch/zh
 | `install.mjs` | 安装引导：环境检查、基准 commit 刷新、启动命令生成 |
 | `harvest.mjs` | 词典漂移对账：新增未翻 / 候选废弃 / commit 比对 |
 | `verify-renderer.mjs` | 渲染层自动化验证（隐藏窗口注入对比） |
-| `verify-preload.mjs` | preload 投递验证（dom-ready 时已是中文，无闪烁回归测试） |
+| `verify-inject.mjs` | protocol 注入验证（sandbox 窗口下页面加载即中文，无闪烁回归测试） |
 
 ### 质量基线
 

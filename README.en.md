@@ -135,7 +135,7 @@ The patch swaps Electron's entry point from `desktop/main.mjs` to the wrapper `z
 ### The three channels
 
 1. **Menu channel (main process)**: monkey-patches `Menu.buildFromTemplate` to recursively translate template `label`s. Pure `{ role }` items (Cut, Copy, …) receive an explicit Chinese label at template time; role semantics are untouched. One hook covers the app menu, context menus, and any future dynamic menus. `dialog.showOpenDialog` is wrapped for dialog titles and file filters.
-2. **Page channel (renderer)**: at startup the translator is bundled as a session-level preload (`session.registerPreloadScript`), injected into every window before page scripts and before first paint, translating synchronously at `DOMContentLoaded` — **the UI appears in Chinese directly, with no English flash**. A TreeWalker pass translates text nodes and `title`/`placeholder`/`aria-label` attributes; a debounced (50 ms) MutationObserver handles dynamically added content. The `dom-ready` `executeJavaScript` injection remains as a fallback, and a DOM-level idempotency marker (`data-zh-patched`) keeps the two paths from double-running.
+2. **Page channel (renderer)**: intercepts the local host's HTML responses via `session.protocol.handle` and inlines the translator as a `<script>` in every page — it executes synchronously during HTML parsing, before first paint, **so the UI appears in Chinese directly with no English flash**, and it works under `sandbox: true` (session-level preloads were evaluated and rejected: they do not run in sandboxed windows). A TreeWalker pass translates text nodes and `title`/`placeholder`/`aria-label` attributes; a debounced (50 ms) MutationObserver handles dynamically added content. The `dom-ready` `executeJavaScript` injection remains as a fallback, and a DOM-level idempotency marker (`data-zh-patched`) keeps the two paths from double-running.
 3. **Interpolation channel**: regex entries in the dictionary handle runtime-composed strings like `Running ${n} cells`.
 
 ### Safety design
@@ -159,7 +159,7 @@ Introducing `t()` into the source is the "proper" i18n approach, but it touches 
 | `install.mjs` | Setup guidance: environment check, baseline refresh, launch-command generation |
 | `harvest.mjs` | Drift reconciliation: new untranslated / candidate stale / commit comparison |
 | `verify-renderer.mjs` | Automated renderer verification (hidden-window injection diff) |
-| `verify-preload.mjs` | Preload delivery verification (UI is Chinese at dom-ready; flash regression test) |
+| `verify-inject.mjs` | Protocol-injection verification (sandboxed window is Chinese at dom-ready; flash regression test) |
 
 ### Quality baseline
 

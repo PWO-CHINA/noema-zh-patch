@@ -9,7 +9,7 @@
 //   4. ../../../Noema
 //
 // Failure rule: any error falls back to the original English behavior.
-import { app, Menu, dialog, session } from "electron";
+import { app, Menu, dialog, session, net } from "electron";
 import { existsSync, readFileSync, appendFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -224,39 +224,57 @@ if (DISABLED) {
 
     if (rendererSource) {
       const injection = `(${rendererSource})(${JSON.stringify({ exact, regex: dict.regex || [] })});`;
+      // HTML 内联脚本形态：转义 </script 防止提前闭合；JSON 中的 <\/ 在 JS 字符串里等价于 </
+      const inlineDict = JSON.stringify({ exact, regex: dict.regex || [] }).replace(/<\//g, "<\\/");
+      const inlineRenderer = rendererSource.replace(/<\/script/gi, "<\\/script");
+      const inlineScript = `<script>(${inlineRenderer})(${inlineDict});</script>`;
 
-      // 首选投递方式：session 级 preload，在页面脚本之前、首次绘制之前进入渲染进程，
-      // 翻译在 DOMContentLoaded 同步完成，消除英文闪烁。对该 session 后续所有窗口/导航生效。
-      const bundlePath = join(patchDir, "zh-preload.bundle.js");
-      try {
-        writeFileSync(bundlePath, injection, "utf8");
-      } catch (err) {
-        log(`preload bundle 写入失败: ${err && err.message ? err.message : err}`);
-      }
-      const preloadedSessions = new WeakSet();
-      const ensureSessionPreload = (ses) => {
+      // 首选投递方式：protocol.handle 拦截本地 host 的 HTML 响应，把翻译器内联进页面。
+      // 脚本在 HTML 解析时同步执行，早于首次绘制（无英文闪烁），且不受窗口 sandbox 限制
+      // （session 级 preload 在 sandbox:true 的窗口里不可用，已实测验证）。
+      const injectedSessions = new WeakSet();
+      const ensureHtmlInjection = (ses) => {
         try {
-          if (!ses || preloadedSessions.has(ses)) return;
-          if (typeof ses.registerPreloadScript === "function") {
-            ses.registerPreloadScript({ type: "frame", filePath: bundlePath, id: "noema-zh-patch" });
-          } else {
-            const existing = ses.getPreloads();
-            if (!existing.includes(bundlePath)) ses.setPreloads([...existing, bundlePath]);
-          }
-          preloadedSessions.add(ses);
+          if (!ses || injectedSessions.has(ses)) return;
+          ses.protocol.handle("http", async (request) => {
+            try {
+              const url = new URL(request.url);
+              const isLocal = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+              // bypassCustomProtocolHandlers 是必须的：net.fetch 默认也走协议处理器，会无限递归
+              const response = await net.fetch(request, { bypassCustomProtocolHandlers: true });
+              if (!isLocal || request.method !== "GET") return response;
+              const type = response.headers.get("content-type") || "";
+              if (!type.includes("text/html")) return response;
+              const html = await response.text();
+              const injected = html.includes("</body>")
+                ? html.replace("</body>", inlineScript + "</body>")
+                : html + inlineScript;
+              const headers = new Headers(response.headers);
+              headers.delete("content-length");
+              return new Response(injected, {
+                status: response.status,
+                statusText: response.statusText,
+                headers,
+              });
+            } catch (err) {
+              log(`HTML 注入异常，按原样放行: ${err && err.message ? err.message : err}`);
+              return net.fetch(request, { bypassCustomProtocolHandlers: true });
+            }
+          });
+          injectedSessions.add(ses);
         } catch (err) {
-          log(`session preload 注册失败: ${err && err.message ? err.message : err}`);
+          log(`protocol 注入注册失败: ${err && err.message ? err.message : err}`);
         }
       };
       // 在原 main.mjs 建窗之前注册（本回调先于原始入口注册，whenReady 按序触发）
-      app.whenReady().then(() => ensureSessionPreload(session.defaultSession)).catch(() => { /* ignore */ });
+      app.whenReady().then(() => ensureHtmlInjection(session.defaultSession)).catch(() => { /* ignore */ });
 
       app.on("web-contents-created", (_event, contents) => {
         try {
           if (contents.getType() !== "window") return; // 跳过 devtools 等
-          ensureSessionPreload(contents.session); // 覆盖自定义 session 的后续窗口
-          // 兜底：preload 未覆盖到的 contents（如窗口先于注册创建），仍按原方式注入。
-          // zh-renderer.js 内有 __zhPatched 幂等标志，与 preload 路径不冲突。
+          ensureHtmlInjection(contents.session); // 覆盖自定义 session
+          // 兜底：protocol 注入未覆盖到的 contents，仍按 dom-ready 注入。
+          // zh-renderer.js 的 data-zh-patched 幂等标志保证两条路径不重复执行。
           contents.on("dom-ready", () => {
             contents.executeJavaScript(injection).catch((err) => {
               log(`注入失败: ${err && err.message ? err.message : err}`);
