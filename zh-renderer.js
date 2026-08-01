@@ -133,40 +133,26 @@
     } catch (err) { /* ignore */ }
   }
 
-  // MutationObserver 增量翻译，50ms debounce 批量处理
-  var pending = new Set();
-  var timer = null;
-  function flush() {
-    timer = null;
-    var nodes = Array.from(pending);
-    pending.clear();
-    for (var i = 0; i < nodes.length; i++) {
-      var n = nodes[i];
-      if (!n) continue;
-      if (n.nodeType === 3) translateTextNode(n);
-      else if (n.nodeType === 1) walk(n);
-    }
-    translateTitle();
-  }
-  function schedule(node) {
-    if (pending.size < 500) pending.add(node);
-    if (timer) return;
-    timer = setTimeout(flush, 50);
-  }
-
+  // MutationObserver 回调是微任务，在渲染绘制之前执行——回调内同步翻译可保证下一帧就是中文。
+  // （此前用 50ms debounce 批量处理，延迟越过首帧，导致每页先闪一帧英文。）
   var observer = new MutationObserver(function (mutations) {
+    var roots = [];
+    var seen = new Set();
     for (var i = 0; i < mutations.length; i++) {
       var mu = mutations[i];
       try {
         if (mu.type === "characterData") {
-          schedule(mu.target);
+          translateTextNode(mu.target);
         } else if (mu.type === "attributes") {
           translateElement(mu.target);
-        } else {
-          for (var j = 0; j < mu.addedNodes.length; j++) schedule(mu.addedNodes[j]);
+        } else if (mu.target && mu.target.nodeType === 1 && !isSkipped(mu.target) && !seen.has(mu.target)) {
+          seen.add(mu.target); // childList 变化按父节点去重，walk 一次覆盖全部 addedNodes
+          roots.push(mu.target);
         }
       } catch (err) { /* ignore */ }
     }
+    for (var k = 0; k < roots.length; k++) walk(roots[k]);
+    translateTitle();
   });
 
   var started = false;

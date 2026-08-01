@@ -132,6 +132,8 @@ if (DISABLED) {
     };
 
     let menuInterceptCount = 0;
+    let protocolRequestCount = 0;
+    let htmlInjectCount = 0;
     let menuLabelTotal = 0;
     let menuLabelHit = 0;
     const menuLabelMisses = new Set();
@@ -237,6 +239,7 @@ if (DISABLED) {
         try {
           if (!ses || injectedSessions.has(ses)) return;
           ses.protocol.handle("http", async (request) => {
+            protocolRequestCount++;
             try {
               const url = new URL(request.url);
               const isLocal = url.hostname === "127.0.0.1" || url.hostname === "localhost";
@@ -246,6 +249,7 @@ if (DISABLED) {
               const type = response.headers.get("content-type") || "";
               if (!type.includes("text/html")) return response;
               const html = await response.text();
+              htmlInjectCount++;
               const injected = html.includes("</body>")
                 ? html.replace("</body>", inlineScript + "</body>")
                 : html + inlineScript;
@@ -305,6 +309,7 @@ if (DISABLED) {
         } else {
           log(`菜单钩子正常: 拦截 ${menuInterceptCount} 次, label 翻译命中 ${menuLabelHit}/${menuLabelTotal}`);
         }
+        log(`protocol 注入自检: HTTP 请求拦截 ${protocolRequestCount} 次, HTML 注入 ${htmlInjectCount} 次`);
       }, 5000);
     }).catch(() => { /* ignore */ });
 
