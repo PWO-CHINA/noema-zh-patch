@@ -1,0 +1,6 @@
+node_modules/
+runtime.log
+misses.log
+verify-report.json
+*.bak
+.DS_Store
