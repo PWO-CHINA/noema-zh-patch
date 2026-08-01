@@ -9,7 +9,7 @@
 //   4. ../../../Noema
 //
 // Failure rule: any error falls back to the original English behavior.
-import { app, Menu, dialog } from "electron";
+import { app, Menu, dialog, session } from "electron";
 import { existsSync, readFileSync, appendFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -224,9 +224,39 @@ if (DISABLED) {
 
     if (rendererSource) {
       const injection = `(${rendererSource})(${JSON.stringify({ exact, regex: dict.regex || [] })});`;
+
+      // 首选投递方式：session 级 preload，在页面脚本之前、首次绘制之前进入渲染进程，
+      // 翻译在 DOMContentLoaded 同步完成，消除英文闪烁。对该 session 后续所有窗口/导航生效。
+      const bundlePath = join(patchDir, "zh-preload.bundle.js");
+      try {
+        writeFileSync(bundlePath, injection, "utf8");
+      } catch (err) {
+        log(`preload bundle 写入失败: ${err && err.message ? err.message : err}`);
+      }
+      const preloadedSessions = new WeakSet();
+      const ensureSessionPreload = (ses) => {
+        try {
+          if (!ses || preloadedSessions.has(ses)) return;
+          if (typeof ses.registerPreloadScript === "function") {
+            ses.registerPreloadScript({ type: "frame", filePath: bundlePath, id: "noema-zh-patch" });
+          } else {
+            const existing = ses.getPreloads();
+            if (!existing.includes(bundlePath)) ses.setPreloads([...existing, bundlePath]);
+          }
+          preloadedSessions.add(ses);
+        } catch (err) {
+          log(`session preload 注册失败: ${err && err.message ? err.message : err}`);
+        }
+      };
+      // 在原 main.mjs 建窗之前注册（本回调先于原始入口注册，whenReady 按序触发）
+      app.whenReady().then(() => ensureSessionPreload(session.defaultSession)).catch(() => { /* ignore */ });
+
       app.on("web-contents-created", (_event, contents) => {
         try {
           if (contents.getType() !== "window") return; // 跳过 devtools 等
+          ensureSessionPreload(contents.session); // 覆盖自定义 session 的后续窗口
+          // 兜底：preload 未覆盖到的 contents（如窗口先于注册创建），仍按原方式注入。
+          // zh-renderer.js 内有 __zhPatched 幂等标志，与 preload 路径不冲突。
           contents.on("dom-ready", () => {
             contents.executeJavaScript(injection).catch((err) => {
               log(`注入失败: ${err && err.message ? err.message : err}`);

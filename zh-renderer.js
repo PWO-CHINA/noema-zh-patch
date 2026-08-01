@@ -3,8 +3,22 @@
 //   executeJavaScript(`(${source})(${JSON.stringify(dict)})`)
 // 因此本文件必须是一个「接收 dict 参数的函数表达式」，不能有任何顶层副作用语句。
 (function zhRenderer(dict) {
-  if (window.__zhPatched) return "already-patched";
-  window.__zhPatched = true;
+  // 幂等标志要跨「隔离世界」可见（preload 与 executeJavaScript 属于不同 JS world，
+  // window 标志互不可见），因此以 DOM 属性为共享标志，window 标志作同世界快速路径。
+  // 判定与标记都在 start() 内完成：preload 在文档早期运行时 documentElement 可能尚未存在，
+  // 此时无法在 DOM 上留标记，只能等到 DOMContentLoaded。
+  function alreadyPatched() {
+    if (window.__zhPatched) return true;
+    var de = document.documentElement;
+    return !!(de && de.hasAttribute("data-zh-patched"));
+  }
+  function markPatched() {
+    window.__zhPatched = true;
+    try {
+      if (document.documentElement) document.documentElement.setAttribute("data-zh-patched", "1");
+    } catch (err) { /* ignore */ }
+  }
+  if (alreadyPatched()) return "already-patched";
 
   var exact = (dict && dict.exact) || {};
   var regexRules = [];
@@ -155,7 +169,11 @@
     }
   });
 
+  var started = false;
   function start() {
+    if (started || alreadyPatched()) return; // 另一个世界可能已完成翻译并挂上观察器
+    started = true;
+    markPatched();
     walk(document.body);
     translateTitle();
     observer.observe(document.documentElement, {

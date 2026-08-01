@@ -4,3 +4,4 @@ misses.log
 verify-report.json
 *.bak
 .DS_Store
+zh-preload.bundle.js
