@@ -926,7 +926,12 @@
     "Don't Save": "不保存",
     "Retry": "重试",
     "Abort": "中止",
-    "Quit": "退出"
+    "Quit": "退出",
+    "Plugins": "插件",
+    "Extensions": "扩展",
+    "Enable or disable desktop plugins. Changes take effect after restarting Noema.": "启用或禁用桌面插件。更改将在重启 Noema 后生效。",
+    "Disabled": "已禁用",
+    "Restart required": "需重启生效"
   },
   "roles": {
     "About": "关于",
@@ -1687,6 +1692,30 @@
     {
       "pattern": "^Committed (\\d+) changed files?$",
       "replace": "已提交 $1 个更改的文件"
+    },
+    {
+      "pattern": "^(.+ · [\\d.]+) · Built in · Always active$",
+      "replace": "$1 · 内置 · 始终启用"
+    },
+    {
+      "pattern": "^(.+ · [\\d.]+) · Built in$",
+      "replace": "$1 · 内置"
+    },
+    {
+      "pattern": "^(.+ · [\\d.]+) · Always active$",
+      "replace": "$1 · 始终启用"
+    },
+    {
+      "pattern": "^Disable (.+)$",
+      "replace": "禁用 $1"
+    },
+    {
+      "pattern": "^Enable (.+)$",
+      "replace": "启用 $1"
+    },
+    {
+      "pattern": "^(.+) changed · restart Noema to apply$",
+      "replace": "$1 已更改 · 重启 Noema 后生效"
     }
   ]
 }

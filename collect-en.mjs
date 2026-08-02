@@ -56,7 +56,7 @@ app.whenReady().then(async () => {
 
   const base = hostUrl.replace(/\/?\?host=desktop$/, "");
   const url = `${base}${routes[page] || routes.main}`;
-  const win = new BrowserWindow({ show: false, width: 1400, height: 900, webPreferences: { sandbox: true, contextIsolation: true } });
+  const win = new BrowserWindow({ show: false, width: 1400, height: 900, webPreferences: { sandbox: true, contextIsolation: true, preload: "D:/App/Noema/Noema/desktop/preload.cjs" } });
   let result;
   try {
     const domReady = new Promise((res) => win.webContents.once("dom-ready", res));
