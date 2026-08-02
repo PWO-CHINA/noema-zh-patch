@@ -7,14 +7,14 @@ import { readFileSync } from "node:fs";
 const patchDir = "D:/App/Noema/noema-zh-patch";
 const hostUrl = process.argv[2];
 const page = process.env.PAGE || "main";
-const rendererSource = readFileSync(patchDir + "/zh-renderer.js", "utf8");
-const dict = JSON.parse(readFileSync(patchDir + "/zh-CN.json", "utf8"));
+const rendererSource = readFileSync(patchDir + "/plugin/renderer.js", "utf8");
+const dict = JSON.parse(readFileSync(patchDir + "/plugin/zh-CN.json", "utf8"));
 const inlineDict = JSON.stringify({ exact: dict.exact, regex: dict.regex }).replace(/<\//g, "<\\/");
 const inlineRenderer = rendererSource.replace(/<\/script/gi, "<\\/script");
 const bootstrap =
-  `<style id="noema-zh-cloak">html[data-noema-zh-pending] body{animation:noemaZhFailOpen 1500ms steps(1,end) both;}` +
+  `<style id="noema-zh-cloak">html[data-noema-plugins-pending] body{animation:noemaZhFailOpen 1500ms steps(1,end) both;}` +
   `@keyframes noemaZhFailOpen{from{opacity:0;}to{opacity:1;}}</style>` +
-  `<script>document.documentElement.setAttribute("data-noema-zh-pending","1");</script>` +
+  `<script>document.documentElement.setAttribute("data-noema-plugins-pending","1");</script>` +
   `<script>(${inlineRenderer})(${inlineDict});</script>`;
 
 function injectBootstrap(html) {

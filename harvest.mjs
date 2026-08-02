@@ -31,7 +31,7 @@ if (!repo) {
   console.error("未找到 Noema 仓库。用 --noema /path/to/Noema 指定，或设置 NOEMA_REPO。");
   process.exit(1);
 }
-const dict = JSON.parse(readFileSync(join(patchDir, "zh-CN.json"), "utf8"));
+const dict = JSON.parse(readFileSync(join(patchDir, "plugin", "zh-CN.json"), "utf8"));
 
 // ③ commit 漂移
 let head = "";

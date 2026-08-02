@@ -1,7 +1,7 @@
-// Noema 中文补丁 - 渲染进程翻译器。
-// 本文件不直接运行；两种投递方式：
-//   ① zh-main.mjs 经 protocol.handle 把本文件内联进 HTML <head>（主路径，解析时同步执行）
-//   ② zh-main.mjs 在 dom-ready 时 executeJavaScript 注入（兜底路径）
+// Noema 简体中文插件 - 渲染进程翻译器。
+// 本文件不直接运行；桌面插件宿主通过两条通用通道投递：
+//   ① protocol.handle 把本文件内联进 HTML <head>（主路径，解析时同步执行）
+//   ② dom-ready 时 executeJavaScript 注入（兜底路径）
 // 因此本文件必须是一个「接收 dict 参数的函数表达式」，不能有任何顶层副作用语句。
 (function zhRenderer(dict) {
   // 幂等标志要跨「隔离世界」可见（内联脚本在主世界，executeJavaScript 兜底也在主世界，
@@ -141,12 +141,12 @@
     try {
       requestAnimationFrame(function () {
         try {
-          document.documentElement.removeAttribute("data-noema-zh-pending");
+          document.documentElement.removeAttribute("data-noema-plugins-pending");
         } catch (err) { /* ignore */ }
       });
     } catch (err) {
       try {
-        document.documentElement.removeAttribute("data-noema-zh-pending");
+        document.documentElement.removeAttribute("data-noema-plugins-pending");
       } catch (err2) { /* ignore */ }
     }
   }

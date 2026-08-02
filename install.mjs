@@ -40,7 +40,7 @@ function refreshSyncedCommit() {
   if (!repo) return;
   try {
     const head = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    const dictPath = join(patchDir, "zh-CN.json");
+    const dictPath = join(patchDir, "plugin", "zh-CN.json");
     const dict = JSON.parse(readFileSync(dictPath, "utf8"));
     dict.meta = { ...(dict.meta || {}), syncedCommit: head, syncedDate: new Date().toISOString().slice(0, 10) };
     writeFileSync(dictPath, JSON.stringify(dict, null, 2), "utf8");

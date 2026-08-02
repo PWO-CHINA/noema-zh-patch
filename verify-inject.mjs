@@ -1,21 +1,21 @@
 // 验证 protocol.handle <head> bootstrap 注入：sandbox:true 窗口（与 Noema 真实窗口同配置），
 // 注册与 zh-main.mjs 相同的 protocol 处理器，断言：
 //   ① dom-ready+50ms 时 data-zh-patched 已置位且中文占比达标
-//   ② cloak 属性 data-noema-zh-pending 已被移除（首轮翻译后解除遮罩）
+//   ② cloak 属性 data-noema-plugins-pending 已被移除（首轮翻译后解除遮罩）
 //   ③ .cm-content 内零中文
 import { app, BrowserWindow, session, net } from "electron";
 import { readFileSync } from "node:fs";
 
 const patchDir = "D:/App/Noema/noema-zh-patch";
 const hostUrl = process.argv[2];
-const rendererSource = readFileSync(patchDir + "/zh-renderer.js", "utf8");
-const dict = JSON.parse(readFileSync(patchDir + "/zh-CN.json", "utf8"));
+const rendererSource = readFileSync(patchDir + "/plugin/renderer.js", "utf8");
+const dict = JSON.parse(readFileSync(patchDir + "/plugin/zh-CN.json", "utf8"));
 const inlineDict = JSON.stringify({ exact: dict.exact, regex: dict.regex }).replace(/<\//g, "<\\/");
 const inlineRenderer = rendererSource.replace(/<\/script/gi, "<\\/script");
 const bootstrap =
-  `<style id="noema-zh-cloak">html[data-noema-zh-pending] body{animation:noemaZhFailOpen 1500ms steps(1,end) both;}` +
+  `<style id="noema-zh-cloak">html[data-noema-plugins-pending] body{animation:noemaZhFailOpen 1500ms steps(1,end) both;}` +
   `@keyframes noemaZhFailOpen{from{opacity:0;}to{opacity:1;}}</style>` +
-  `<script>document.documentElement.setAttribute("data-noema-zh-pending","1");</script>` +
+  `<script>document.documentElement.setAttribute("data-noema-plugins-pending","1");</script>` +
   `<script>(${inlineRenderer})(${inlineDict});</script>`;
 
 function injectBootstrap(html) {
@@ -63,7 +63,7 @@ app.whenReady().then(async () => {
         const cm = document.querySelector(".cm-content");
         return {
           patched: document.documentElement.hasAttribute("data-zh-patched"),
-          cloakPending: document.documentElement.hasAttribute("data-noema-zh-pending"),
+          cloakPending: document.documentElement.hasAttribute("data-noema-plugins-pending"),
           cloakStylePresent: !!document.getElementById("noema-zh-cloak"),
           total: texts.length,
           zh: texts.filter((s) => /[\\u4e00-\\u9fff]/.test(s)).length,

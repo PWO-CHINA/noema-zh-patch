@@ -68,7 +68,12 @@ if (DISABLED) {
 
   let dict = null;
   try {
-    dict = JSON.parse(readFileSync(join(patchDir, "zh-CN.json"), "utf8"));
+    // 词典与渲染器的唯一来源是 plugin/（与上游 plugins/noema-zh-cn/ 镜像对齐）；
+    // 根目录旧文件仅作向后兼容回退。
+    const dictPath = existsSync(join(patchDir, "plugin", "zh-CN.json"))
+      ? join(patchDir, "plugin", "zh-CN.json")
+      : join(patchDir, "zh-CN.json");
+    dict = JSON.parse(readFileSync(dictPath, "utf8"));
   } catch (err) {
     log(`词典读取失败，按未打补丁运行: ${err && err.message ? err.message : err}`);
   }
@@ -188,39 +193,65 @@ if (DISABLED) {
       log(`Menu.buildFromTemplate patch 失败: ${err && err.message ? err.message : err}`);
     }
 
-    // 通道 1 补充：文件对话框 title / filters[].name
+    // 通道 1 补充：对话框（与上游插件宿主的字段覆盖对齐：title/message/detail/buttons/filters）
+    function translateDialogOptions(opts) {
+      if (!opts || typeof opts !== "object") return opts;
+      try {
+        for (const key of ["title", "message", "detail"]) {
+          if (typeof opts[key] === "string" && opts[key]) {
+            const zh = translateText(opts[key]);
+            if (zh !== null) opts[key] = zh;
+          }
+        }
+        if (Array.isArray(opts.buttons)) {
+          opts.buttons = opts.buttons.map((b) => {
+            const zh = translateText(b);
+            return zh !== null ? zh : b;
+          });
+        }
+        if (Array.isArray(opts.filters)) {
+          for (const filter of opts.filters) {
+            if (filter && typeof filter.name === "string" && filter.name) {
+              const zh = translateText(filter.name);
+              if (zh !== null) filter.name = zh;
+            }
+          }
+        }
+      } catch { /* fall back to original */ }
+      return opts;
+    }
     try {
       const originalShowOpenDialog = dialog.showOpenDialog.bind(dialog);
       dialog.showOpenDialog = function patchedShowOpenDialog(...args) {
-        try {
-          const opts = args[args.length - 1];
-          if (opts && typeof opts === "object") {
-            if (typeof opts.title === "string" && opts.title) {
-              const zh = translateText(opts.title);
-              if (zh !== null) opts.title = zh;
-            }
-            if (Array.isArray(opts.filters)) {
-              for (const filter of opts.filters) {
-                if (filter && typeof filter.name === "string" && filter.name) {
-                  const zh = translateText(filter.name);
-                  if (zh !== null) filter.name = zh;
-                }
-              }
-            }
-          }
-        } catch { /* fall back to original */ }
+        const opts = args[args.length - 1];
+        if (opts && typeof opts === "object") translateDialogOptions(opts);
         return originalShowOpenDialog(...args);
       };
+      const originalShowSaveDialog = dialog.showSaveDialog.bind(dialog);
+      dialog.showSaveDialog = function patchedShowSaveDialog(...args) {
+        const opts = args[args.length - 1];
+        if (opts && typeof opts === "object") translateDialogOptions(opts);
+        return originalShowSaveDialog(...args);
+      };
+      const originalShowMessageBox = dialog.showMessageBox.bind(dialog);
+      dialog.showMessageBox = function patchedShowMessageBox(...args) {
+        const opts = args[args.length - 1];
+        if (opts && typeof opts === "object") translateDialogOptions(opts);
+        return originalShowMessageBox(...args);
+      };
     } catch (err) {
-      log(`dialog.showOpenDialog patch 失败: ${err && err.message ? err.message : err}`);
+      log(`dialog patch 失败: ${err && err.message ? err.message : err}`);
     }
 
     // 通道 2/3：向每个窗口注入渲染进程翻译器
     let rendererSource = "";
     try {
-      rendererSource = readFileSync(join(patchDir, "zh-renderer.js"), "utf8");
+      const rendererPath = existsSync(join(patchDir, "plugin", "renderer.js"))
+        ? join(patchDir, "plugin", "renderer.js")
+        : join(patchDir, "zh-renderer.js");
+      rendererSource = readFileSync(rendererPath, "utf8");
     } catch (err) {
-      log(`zh-renderer.js 读取失败，仅菜单翻译生效: ${err && err.message ? err.message : err}`);
+      log(`renderer.js 读取失败，仅菜单翻译生效: ${err && err.message ? err.message : err}`);
     }
     const seenMisses = new Set();
 
@@ -231,10 +262,11 @@ if (DISABLED) {
       const inlineRenderer = rendererSource.replace(/<\/script/gi, "<\\/script");
       // <head> bootstrap：cloak（纯 CSS 动画 fail-open，JS 全失效也会 ~1.5s 后自动回英文可见）
       // → pending 标志 → 翻译器。必须在任何应用脚本之前，翻译器执行即安装 MutationObserver。
+      // cloak 属性名与上游插件宿主一致（data-noema-plugins-pending）。
       const bootstrap =
-        `<style id="noema-zh-cloak">html[data-noema-zh-pending] body{animation:noemaZhFailOpen 1500ms steps(1,end) both;}` +
+        `<style id="noema-zh-cloak">html[data-noema-plugins-pending] body{animation:noemaZhFailOpen 1500ms steps(1,end) both;}` +
         `@keyframes noemaZhFailOpen{from{opacity:0;}to{opacity:1;}}</style>` +
-        `<script>document.documentElement.setAttribute("data-noema-zh-pending","1");</script>` +
+        `<script>document.documentElement.setAttribute("data-noema-plugins-pending","1");</script>` +
         `<script>(${inlineRenderer})(${inlineDict});</script>`;
 
       function injectBootstrap(html) {

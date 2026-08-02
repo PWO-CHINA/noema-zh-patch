@@ -1,7 +1,7 @@
 # noema-zh-patch — Chinese UI for Noema
 
-> A complete Simplified Chinese interface for the Noema desktop app — without touching a single line of Noema's source code.
-> `git pull` upstream whenever you like: this patch can never conflict, and its worst-case failure mode is simply an English UI again.
+> Simplified Chinese UI for the Noema desktop app. This repository is its **development origin**: the dictionary and translator are maintained here and flow back upstream.
+> Since Noema `ead7cbf` (plugin system), the Chinese UI ships as the official built-in plugin **noema.zh-cn** — most users don't need this repo at all; just enable the plugin inside Noema (see "Usage").
 
 [中文 README](README.md)（默认）
 
@@ -9,22 +9,27 @@
 
 ## What this is
 
-[Noema](https://github.com/AaronHnoraA/Noema) is a Typora-style Markdown editor (web / Electron desktop) that ships English-only. This patch translates the desktop UI — menus, panels, buttons, tooltips, status messages, ~900 strings — by **runtime injection** rather than source modification.
+[Noema](https://github.com/AaronHnoraA/Noema) is a Typora-style Markdown editor (web / Electron desktop) that originally shipped English-only. This project translates the desktop UI — menus, panels, buttons, tooltips, status messages, 900+ strings. It has been upstreamed as a plugin (migrated from this repo's `8ff36eb`); this repo remains the development origin for the dictionary and translator.
 
 Three defining properties:
 
-- **Zero-touch**: the patch is a standalone set of files outside the Noema repository. Nothing upstream is added, deleted, or modified.
-- **Maintainable**: the dictionary is decoupled from the source. After an upstream update, one command tells you exactly which strings are new and untranslated.
-- **Safe by construction**: your notes are never touched (the editor surface is hard-excluded), every translation falls back to English, and no failure path can affect your data.
+- **Upstreamed**: upstream `plugins/noema-zh-cn/` mirrors this repo's `plugin/` directory; `node diff-upstream.mjs` reports every difference in one command.
+- **Maintainable**: the dictionary is decoupled from the source. After an upstream update, `node harvest.mjs` lists exactly what's new and untranslated.
+- **Safe by construction**: your notes are never touched (the `.cm-content` subtree is hard-pruned); every translation falls back to English.
 
 ---
 
 ## Part 1 · Usage
 
-### Requirements
+### Option A: official built-in plugin (recommended, Noema ≥ ead7cbf)
 
-- Noema's development environment as documented upstream (Node `26.5.0`, npm `11.17.0`)
-- `npm ci` and `npm run build:aaronnote` completed inside the Noema repo
+Nothing to download. In Noema, open **Configuration → Plugins → enable "Noema 简体中文"**, then restart Noema. Enablement is stored in `plugins.json` under the user-data directory.
+
+> Only older Noema builds (pre-plugin-system) need option B.
+
+### Option B: standalone patch wrapper (older Noema)
+
+Requirements: Node `26.5.0`, npm `11.17.0`, and `npm ci` + `npm run build:aaronnote` completed inside the Noema repo.
 
 ### Install (three steps)
 
@@ -99,7 +104,7 @@ node noema-zh-patch/harvest.mjs   # reconcile the dictionary against upstream so
 
 ### Adding a translation
 
-Everything lives in `zh-CN.json`, two kinds of entries:
+Everything lives in `plugin/zh-CN.json`, two kinds of entries:
 
 ```jsonc
 {
@@ -114,13 +119,23 @@ Everything lives in `zh-CN.json`, two kinds of entries:
 }
 ```
 
+### Flowing updates back upstream (official plugin sync)
+
+This repo's `plugin/` mirrors upstream `Noema/plugins/noema-zh-cn/` one-to-one:
+
+```bash
+node diff-upstream.mjs   # diff plugin/ against the upstream plugin directory
+```
+
+It reports per-file identity (plugin.json / main.mjs / renderer.js / README.md) plus entry-level dictionary deltas (added / changed / missing). When the reported delta is what you intend to ship, copy `plugin/` over `plugins/noema-zh-cn/` in a Noema checkout and open the PR — that is the "future updates land directly in main" path.
+
 ### Finding what's still untranslated
 
 ```bash
 NOEMA_ZH_DEBUG=1 Noema/node_modules/electron/dist/electron.exe noema-zh-patch/zh-main.mjs
 ```
 
-Use the app normally; every missed UI string is deduplicated into `misses.log`. The per-launch self-check (menu-hook interception count, translation hit rate) is recorded in `runtime.log`.
+Use the app normally; every missed UI string is deduplicated into `misses.log`. The per-launch self-check (menu-hook interception count, translation hit rate) is recorded in `runtime.log`. You can also run `collect-en.mjs` to dump every untranslated string on any page (see Repository layout).
 
 ---
 
@@ -154,22 +169,27 @@ Introducing `t()` into the source is the "proper" i18n approach, but it touches 
 
 | File | Role |
 | --- | --- |
-| `zh-CN.json` | The dictionary: `exact` matches / `roles` menu-role labels / `regex` interpolation patterns; `meta.syncedCommit` records the baseline commit |
-| `zh-main.mjs` | Main-process wrapper (the actual Electron entry) |
-| `zh-renderer.js` | Renderer translator (injected by the wrapper) |
+| `plugin/` | **Mirror of upstream `Noema/plugins/noema-zh-cn/`** (single source of truth) |
+| `plugin/zh-CN.json` | The dictionary: `exact` matches / `roles` menu-role labels / `regex` interpolation patterns; `meta.syncedCommit` records the baseline commit |
+| `plugin/renderer.js` | Renderer translator (line-identical to the upstream plugin) |
+| `plugin/main.mjs` | Thin adapter over the official plugin-host API (line-identical to upstream) |
+| `plugin/plugin.json` | Plugin manifest (id `noema.zh-cn`) |
+| `zh-main.mjs` | Standalone wrapper (Electron entry for older Noema; also reads dictionary/renderer from `plugin/`) |
 | `install.mjs` | Setup guidance: environment check, baseline refresh, launch-command generation |
 | `harvest.mjs` | Drift reconciliation: new untranslated / candidate stale / commit comparison |
+| `diff-upstream.mjs` | **Alignment check: `plugin/` vs upstream plugin directory, PR-ready delta report** |
+| `collect-en.mjs` | Residual-English scanner (hidden window; dumps untranslated strings per page) |
 | `verify-renderer.mjs` | Automated renderer verification (hidden-window injection diff) |
 | `verify-inject.mjs` | Protocol-injection verification (sandboxed window is Chinese at dom-ready; flash regression test) |
 
 ### Quality baseline
 
-Verified against Noema `343edf5`: menu label hit rate 90/91 (the single miss is the brand name, kept on purpose); 110/125 visible UI strings on the main window translated (rest are brand names and icon glyphs); zero Chinese characters inside `.cm-content`.
+Verified against Noema `ead7cbf`: menu label hit rate 92/92; official plugin activation log `dictionary loaded (exact=917, regex=182)`; Wiki/config/main scans show only brand names, icon glyphs, data values, and shortcut hints; zero Chinese characters inside `.cm-content`.
 
 ### Contributing
 
-- **Fix a translation**: PR against `zh-CN.json`. English keys must match source byte-for-byte; follow the established terminology (note→笔记, graph→图谱, agenda→日程, snippet→代码片段, cell→单元).
-- **Track upstream**: run `node harvest.mjs` and PR the new entries together with the updated `meta.syncedCommit`.
+- **Fix a translation**: PR against `plugin/zh-CN.json`. English keys must match source byte-for-byte; follow the established terminology (note→笔记, graph→图谱, agenda→日程, snippet→代码片段, cell→单元).
+- **Track upstream**: run `node harvest.mjs` and PR the new entries together with the updated `meta.syncedCommit`; check the delta with `node diff-upstream.mjs` before opening the upstream PR.
 - **Report a bug**: attach `runtime.log`; for missing translations, attach `misses.log` from a `NOEMA_ZH_DEBUG=1` run.
 
 ## License

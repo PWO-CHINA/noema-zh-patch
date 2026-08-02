@@ -1,7 +1,8 @@
 # noema-zh-patch — Noema 中文界面补丁
 
-> 不修改 Noema 的任何源代码，为桌面端提供完整的简体中文界面。
-> 升级 Noema 时 `git pull` 永远不会与本补丁冲突；补丁即使失效，最坏情况也只是界面回到英文。
+> Noema 简体中文界面。本仓库是其**开发源头**：词典与翻译器在这里维护，定期回流上游。
+> 自 Noema `ead7cbf`（插件系统）起，中文界面已作为官方内置插件 **noema.zh-cn** 发布——
+> 大多数用户不需要本仓库，直接在 Noema 里启用官方插件即可（见下文「使用」）。
 
 [English README](README.en.md)
 
@@ -9,22 +10,27 @@
 
 ## 这是什么
 
-[Noema](https://github.com/AaronHnoraA/Noema) 是一款 Typora 风格的 Markdown 编辑器（Web / Electron 桌面端），官方界面只有英文。本补丁通过**运行时注入**的方式，把桌面端的菜单、面板、按钮、提示等界面文本翻译成中文，覆盖约 900 条文案。
+[Noema](https://github.com/AaronHnoraA/Noema) 是一款 Typora 风格的 Markdown 编辑器（Web / Electron 桌面端），官方界面原为英文。本项目把桌面端的菜单、面板、按钮、提示等界面文本翻译成中文，覆盖 900+ 条文案。它已被上游以插件形式收编（迁移自本仓库 `8ff36eb`），本仓库继续作为词典与翻译器的开发源头。
 
-它的三个关键性质：
+三个关键性质：
 
-- **零侵入**：补丁是 Noema 仓库之外的一组独立文件，不增删改上游任何一行代码。
-- **可维护**：词典与源码解耦。上游更新后运行一条命令即可对账，新增了哪些未翻译的字符串一目了然。
-- **绝对安全**：编辑器里的笔记内容永不触碰；所有翻译逻辑都有英文兜底，任何异常都不会影响数据和功能。
+- **已被官方收编**：上游 `plugins/noema-zh-cn/` 与本仓库 `plugin/` 目录结构一致，`node diff-upstream.mjs` 一条命令核对两边差异。
+- **可维护**：词典与源码解耦。上游更新后 `node harvest.mjs` 即可对账新增未翻字符串。
+- **绝对安全**：编辑器里的笔记内容永不触碰（`.cm-content` 子树硬性剪枝）；所有翻译逻辑都有英文兜底。
 
 ---
 
 ## 第一部分 · 使用
 
-### 环境要求
+### 方式 A：官方内置插件（推荐，Noema ≥ ead7cbf）
 
-- 已按 Noema 官方要求装好开发环境（Node `26.5.0`、npm `11.17.0`）
-- 已在 Noema 仓库执行过 `npm ci` 和 `npm run build:aaronnote`
+无需下载任何东西。打开 Noema → **Configuration → Plugins → 启用 "Noema 简体中文"**，重启 Noema 生效。启停状态记录在用户数据目录的 `plugins.json`。
+
+> 旧版 Noema（无插件系统）才需要方式 B。
+
+### 方式 B：独立补丁包装器（旧版 Noema）
+
+环境要求：Node `26.5.0`、npm `11.17.0`，Noema 仓库执行过 `npm ci` 和 `npm run build:aaronnote`。
 
 ### 安装（三步）
 
@@ -99,7 +105,7 @@ node noema-zh-patch/harvest.mjs   # 对账词典与上游源码
 
 ### 补一条翻译
 
-所有翻译都在 `zh-CN.json` 一个文件里，两种条目：
+所有翻译都在 `plugin/zh-CN.json` 一个文件里，两种条目：
 
 ```jsonc
 {
@@ -114,13 +120,23 @@ node noema-zh-patch/harvest.mjs   # 对账词典与上游源码
 }
 ```
 
+### 把更新回流上游（官方插件同步流程）
+
+本仓库 `plugin/` 与上游 `Noema/plugins/noema-zh-cn/` 目录结构一一对应：
+
+```bash
+node diff-upstream.mjs   # 核对 plugin/ 与上游插件目录的全部差异
+```
+
+输出逐文件一致性（plugin.json / main.mjs / renderer.js / README.md）+ 词典条目级 delta（我们新增/值不同/我们缺失）。确认差异就是你要提交的内容后，把 `plugin/` 整体复制到上游 `plugins/noema-zh-cn/` 并提 PR 即可——这就是"后续升级直接被迁移进 main"的路径。
+
 ### 找出还没翻译的字符串
 
 ```bash
 NOEMA_ZH_DEBUG=1 Noema/node_modules/electron/dist/electron.exe noema-zh-patch/zh-main.mjs
 ```
 
-在界面里正常操作一遍，所有未命中的界面文案会去重后写入 `misses.log`，逐条补进词典即可。每次启动的自检结果（菜单钩子计数、翻译命中率）记录在 `runtime.log`。
+在界面里正常操作一遍，所有未命中的界面文案会去重后写入 `misses.log`，逐条补进词典即可。每次启动的自检结果（菜单钩子计数、翻译命中率）记录在 `runtime.log`。也可以用 `collect-en.mjs` 对任意页面做残留扫描（见仓库结构表）。
 
 ---
 
@@ -154,17 +170,22 @@ NOEMA_ZH_DEBUG=1 Noema/node_modules/electron/dist/electron.exe noema-zh-patch/zh
 
 | 文件 | 职责 |
 | --- | --- |
-| `zh-CN.json` | 翻译词典：`exact` 精确匹配 / `roles` 菜单 role 文案 / `regex` 插值模板；`meta.syncedCommit` 记录词典的基准 commit |
-| `zh-main.mjs` | 主进程包装器（Electron 实际入口） |
-| `zh-renderer.js` | 渲染进程翻译器（由包装器注入） |
+| `plugin/` | **与上游 `Noema/plugins/noema-zh-cn/` 镜像对齐的插件目录**（唯一内容来源） |
+| `plugin/zh-CN.json` | 翻译词典：`exact` 精确匹配 / `roles` 菜单 role 文案 / `regex` 插值模板；`meta.syncedCommit` 记录词典的基准 commit |
+| `plugin/renderer.js` | 渲染进程翻译器（与上游插件版逐行一致） |
+| `plugin/main.mjs` | 官方插件宿主 API 的薄适配层（与上游逐行一致） |
+| `plugin/plugin.json` | 插件清单（id `noema.zh-cn`） |
+| `zh-main.mjs` | 独立补丁包装器（旧版 Noema 的 Electron 入口；词典与渲染器也从 `plugin/` 读取） |
 | `install.mjs` | 安装引导：环境检查、基准 commit 刷新、启动命令生成 |
 | `harvest.mjs` | 词典漂移对账：新增未翻 / 候选废弃 / commit 比对 |
+| `diff-upstream.mjs` | **对齐检查：`plugin/` vs 上游插件目录，输出 PR 就绪的差异清单** |
+| `collect-en.mjs` | 页面英文残留扫描器（隐藏窗口，按页面转储未翻译字符串） |
 | `verify-renderer.mjs` | 渲染层自动化验证（隐藏窗口注入对比） |
 | `verify-inject.mjs` | protocol 注入验证（sandbox 窗口下页面加载即中文，无闪烁回归测试） |
 
 ### 质量基线
 
-针对 Noema `343edf5` 验证：菜单 label 命中 90/91（唯一未命中为品牌名，有意保留）；主窗口可见 UI 文本 125 条中 110 条中文化（其余为品牌名与图标符号）；编辑器文档区零中文字符。
+针对 Noema `ead7cbf` 验证：菜单 label 命中 92/92；官方插件激活日志 `dictionary loaded (exact=917, regex=182)`；Wiki/配置/主页扫描仅剩品牌名、图标符号、数据值与快捷键提示；编辑器文档区零中文字符。
 
 ### 参与贡献
 
