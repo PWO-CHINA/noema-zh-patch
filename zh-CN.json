@@ -913,7 +913,14 @@
     "Cool clinical paper with ink-blue and teal accents": "冷峻临床纸感，墨蓝与青绿点缀",
     "Warm paper, charcoal ink, and terracotta accents": "暖纸底色，炭墨与赤陶点缀",
     "Noema's original dark Wave theme": "Noema 原版深色 Wave 主题",
-    "and": "和"
+    "and": "和",
+    "Local commit": "本地提交",
+    "Commit & sync": "提交并同步",
+    "Local commit message (optional)": "本地提交说明（可选）",
+    "No local changes to commit": "没有可提交的本地更改",
+    "Local commit only (no origin remote)": "仅本地提交（无 origin 远程）",
+    "partition must be public or private": "partition 必须是 public 或 private",
+    "Namespace partition must be public or private": "命名空间的 partition 必须是 public 或 private"
   },
   "roles": {
     "About": "关于",
@@ -1650,6 +1657,30 @@
     {
       "pattern": "^Moving (.+) to Recycle Bin\\.\\.\\.$",
       "replace": "正在将 $1 移至回收站..."
+    },
+    {
+      "pattern": "^repositories[(d+)].partition must be public or private$",
+      "replace": "repositories[$1].partition 必须是 public 或 private"
+    },
+    {
+      "pattern": "^(.+) · clean$",
+      "replace": "$1 · 干净"
+    },
+    {
+      "pattern": "^(.+) · changes$",
+      "replace": "$1 · 有更改"
+    },
+    {
+      "pattern": "^(.+) · branch pending$",
+      "replace": "$1 · 分支待定"
+    },
+    {
+      "pattern": "^idle · (.+)$",
+      "replace": "空闲 · $1"
+    },
+    {
+      "pattern": "^Committed (d+) changed files?$",
+      "replace": "已提交 $1 个更改的文件"
     }
   ]
 }
