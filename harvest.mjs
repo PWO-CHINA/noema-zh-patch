@@ -69,6 +69,9 @@ const scannedFiles = [
   "aaronnote/snippets.ts",
   "aaronnote/link-preview.ts",
   "aaronnote/prose-check-lifecycle.ts",
+  "aaronnote/knowledge-search.ts",
+  "aaronnote/workspace-graph.ts",
+  "aaronnote/local-graph.ts",
 ];
 let corpus = "";
 for (const file of scannedFiles) {
