@@ -1659,7 +1659,7 @@
       "replace": "正在将 $1 移至回收站..."
     },
     {
-      "pattern": "^repositories[(d+)].partition must be public or private$",
+      "pattern": "^repositories\\[(\\d+)\\]\\.partition must be public or private$",
       "replace": "repositories[$1].partition 必须是 public 或 private"
     },
     {
@@ -1679,7 +1679,7 @@
       "replace": "空闲 · $1"
     },
     {
-      "pattern": "^Committed (d+) changed files?$",
+      "pattern": "^Committed (\\d+) changed files?$",
       "replace": "已提交 $1 个更改的文件"
     }
   ]
